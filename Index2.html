@@ -88,6 +88,7 @@ button.ia-on{
   border-radius:10px;
 }
 </style>
+  <script src="ia_2048.js"></script>
 </head>
 
 <body>
@@ -115,21 +116,26 @@ let iaScript = null;
 function toggleIA(){
   const btn = document.getElementById("iaBtn");
 
-  if(iaScript){
-    // DESLIGA IA
-    iaScript.remove();
-    iaScript = null;
+  if(window.IA_ENABLED){
+    // DESLIGAR IA
     window.IA_ENABLED = false;
+
+    if(iaScript){
+      iaScript.remove();
+      iaScript = null;
+    }
+
     btn.textContent = "IA: OFF";
     btn.classList.remove("ia-on");
   }else{
-    // LIGA IA
+    // LIGAR IA
+    window.IA_ENABLED = true;
+
     iaScript = document.createElement("script");
     iaScript.src = "ia_2048.js";
     iaScript.defer = true;
     document.body.appendChild(iaScript);
 
-    window.IA_ENABLED = true;
     btn.textContent = "IA: ON";
     btn.classList.add("ia-on");
   }
