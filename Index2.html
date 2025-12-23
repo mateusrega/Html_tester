@@ -47,6 +47,11 @@ button{
   background:#8f7a66;
   color:#fff;
   font-size:16px;
+  cursor:pointer;
+}
+
+button.ia-on{
+  background:#4caf50;
 }
 
 .board{
@@ -95,6 +100,7 @@ button{
     </div>
   </header>
 
+  <button onclick="toggleIA()" id="iaBtn">IA: OFF</button>
   <button onclick="start()">Reiniciar</button>
 
   <div class="board" id="board">
@@ -103,6 +109,33 @@ button{
 </div>
 
 <script>
+/* ================== CONTROLE IA ================== */
+function toggleIA(){
+  const ia = localStorage.getItem("iaMode")==="on" ? "off" : "on";
+  localStorage.setItem("iaMode", ia);
+
+  if(ia==="on"){
+    window.location.href = "ia.html"; // arquivo da IA
+  }else{
+    updateIABtn();
+  }
+}
+
+function updateIABtn(){
+  const btn = document.getElementById("iaBtn");
+  const ia = localStorage.getItem("iaMode");
+  if(ia==="on"){
+    btn.textContent = "IA: ON";
+    btn.classList.add("ia-on");
+  }else{
+    btn.textContent = "IA: OFF";
+    btn.classList.remove("ia-on");
+  }
+}
+
+updateIABtn();
+
+/* ================== JOGO BASE ================== */
 const size = 4;
 let board, score, gameOver=false;
 
@@ -110,7 +143,6 @@ const boardEl = document.getElementById("board");
 const scoreEl = document.getElementById("score");
 const gameOverEl = document.getElementById("gameOver");
 
-/* ---------- INICIALIZAÇÃO ---------- */
 function start(){
   board = Array(size).fill().map(()=>Array(size).fill(0));
   score = 0;
@@ -120,7 +152,6 @@ function start(){
   render();
 }
 
-/* ---------- LÓGICA BASE ---------- */
 function cloneBoard(b){ return b.map(r=>[...r]); }
 
 function addTile(){
@@ -185,40 +216,6 @@ function endGame(){
   gameOverEl.style.display="flex";
 }
 
-/* ---------- FUNÇÃO CHAVE PARA IA ---------- */
-/* Simula movimento sem alterar o jogo real */
-function simulateMove(dir, state){
-  let temp = cloneBoard(state);
-
-  function slideSim(row){
-    row=row.filter(v=>v);
-    for(let i=0;i<row.length-1;i++){
-      if(row[i]===row[i+1]){
-        row[i]*=2;
-        row.splice(i+1,1);
-      }
-    }
-    while(row.length<size) row.push(0);
-    return row;
-  }
-
-  for(let i=0;i<size;i++){
-    let col;
-    if(dir==="left") temp[i]=slideSim(temp[i]);
-    if(dir==="right") temp[i]=slideSim([...temp[i]].reverse()).reverse();
-    if(dir==="up"){
-      col=slideSim(temp.map(r=>r[i]));
-      col.forEach((v,j)=>temp[j][i]=v);
-    }
-    if(dir==="down"){
-      col=slideSim(temp.map(r=>r[i]).reverse()).reverse();
-      col.forEach((v,j)=>temp[j][i]=v);
-    }
-  }
-  return temp;
-}
-
-/* ---------- RENDER ---------- */
 function tileColor(v){
   const map={
     2:"#eee4da",4:"#ede0c8",8:"#f2b179",16:"#f59563",
@@ -230,7 +227,6 @@ function tileColor(v){
 
 function render(){
   boardEl.querySelectorAll(".cell").forEach(e=>e.remove());
-
   board.flat().forEach(v=>{
     const d=document.createElement("div");
     d.className="cell";
@@ -244,7 +240,6 @@ function render(){
   scoreEl.textContent=score;
 }
 
-/* ---------- INPUT ---------- */
 document.addEventListener("keydown",e=>{
   if(e.key==="ArrowLeft") move("left");
   if(e.key==="ArrowRight") move("right");
