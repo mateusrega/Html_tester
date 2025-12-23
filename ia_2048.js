@@ -1,85 +1,85 @@
-/* ==================================================
-   IA 2048 — estilo Universo Programado
-   Usa heurísticas + simulação
-   ================================================== */
+/* ================== IA 2048 ================== */
+/* Compatível com seu jogo atual */
 
-if (!window.move || !window.simulateMove) {
-  console.error("IA não encontrou as funções do jogo.");
+let iaInterval = null;
+
+function startIA(){
+  if(iaInterval) return;
+
+  iaInterval = setInterval(()=>{
+    if(gameOver){
+      stopIA();
+      return;
+    }
+
+    const dir = chooseBestMove();
+    if(dir) move(dir);
+
+  }, 120); // velocidade da IA (ms)
 }
 
-/* Flag global */
-window.IA_ENABLED = true;
+function stopIA(){
+  clearInterval(iaInterval);
+  iaInterval = null;
+}
 
-/* Configuração */
-const IA_DELAY = 120; // ms entre jogadas
-const DIRECTIONS = ["up", "down", "left", "right"];
-const CANTO_PREFERIDO = [3, 0]; // canto inferior esquerdo
-
-/* Loop principal */
-const iaInterval = setInterval(() => {
-  if (!window.IA_ENABLED || window.gameOver) return;
-
-  const best = escolherMelhorJogada();
-  if (best) move(best);
-}, IA_DELAY);
-
-/* ================== DECISÃO ================== */
-function escolherMelhorJogada(){
-  let bestDir = null;
+function chooseBestMove(){
+  const dirs = ["up","left","right","down"];
   let bestScore = -Infinity;
+  let bestDir = null;
 
-  for (const dir of DIRECTIONS) {
-    const sim = simulateMove(dir, board);
-    if (JSON.stringify(sim) === JSON.stringify(board)) continue;
+  for(const d of dirs){
+    const simulated = simulateMove(d, board);
+    if(JSON.stringify(simulated) === JSON.stringify(board)) continue;
 
-    const score = avaliarTabuleiro(sim);
-    if (score > bestScore) {
+    const score = evaluateBoard(simulated);
+    if(score > bestScore){
       bestScore = score;
-      bestDir = dir;
+      bestDir = d;
     }
   }
   return bestDir;
 }
 
-/* ================== HEURÍSTICAS ================== */
-function avaliarTabuleiro(b){
+/* ===== Heurísticas (Universo Programado style) ===== */
+
+function evaluateBoard(b){
   return (
-    espacosVazios(b) * 100 +
-    maiorNoCanto(b) * 1000 +
-    monotonicidade(b) * 10 -
-    penalidadeCaos(b) * 5
+    emptyCells(b) * 100 +
+    maxInCorner(b) * 1000 +
+    monotonicity(b) * 10
   );
 }
 
-function espacosVazios(b){
-  return b.flat().filter(v => v === 0).length;
+function emptyCells(b){
+  return b.flat().filter(v=>v===0).length;
 }
 
-function maiorNoCanto(b){
-  const max = Math.max(...b.flat());
-  return b[CANTO_PREFERIDO[0]][CANTO_PREFERIDO[1]] === max ? 1 : 0;
+function maxInCorner(b){
+  let max = Math.max(...b.flat());
+  return (
+    b[3][0]===max ||
+    b[3][3]===max ||
+    b[0][0]===max ||
+    b[0][3]===max
+  ) ? 1 : 0;
 }
 
-function monotonicidade(b){
+function monotonicity(b){
   let score = 0;
-
-  for (let i = 0; i < 4; i++) {
-    for (let j = 0; j < 3; j++) {
-      if (b[i][j] >= b[i][j + 1]) score++;
-      if (b[j][i] >= b[j + 1][i]) score++;
+  for(let i=0;i<4;i++){
+    for(let j=0;j<3;j++){
+      score += b[i][j] >= b[i][j+1] ? 1 : -1;
+      score += b[j][i] >= b[j+1][i] ? 1 : -1;
     }
   }
   return score;
 }
 
-function penalidadeCaos(b){
-  let caos = 0;
-  for (let i = 0; i < 4; i++) {
-    for (let j = 0; j < 4; j++) {
-      if (!b[i][j]) continue;
-      if (j < 3 && Math.abs(b[i][j] - b[i][j + 1]) > b[i][j]) caos++;
-      if (i < 3 && Math.abs(b[i][j] - b[i + 1][j]) > b[i][j]) caos++;
-    }
-  }
-  return caos;
-}
+/* ===== Observa botão IA ===== */
+
+setInterval(()=>{
+  const ia = localStorage.getItem("iaMode");
+  if(ia==="on") startIA();
+  else stopIA();
+}, 300);
