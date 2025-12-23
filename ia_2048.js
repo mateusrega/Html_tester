@@ -1,121 +1,85 @@
-/* ===============================
-   IA 2048 — Universo Programado
-   =============================== */
+/* ==================================================
+   IA 2048 — estilo Universo Programado
+   Usa heurísticas + simulação
+   ================================================== */
 
-/* CONFIGURAÇÕES */
-const AI_CONFIG = {
-  intervalo: 120,          // ms entre jogadas
-  cantoPreferido: "bottom-left",
-  pesos: {
-    espacos: 3.0,
-    monotonia: 1.5,
-    canto: 4.0,
-    maxTile: 1.0,
-    penalidadeTravado: 3.5
-  }
-};
-
-let iaAtiva = false;
-let iaLoop = null;
-
-/* ---------- CONTROLE ---------- */
-function ligarIA(){
-  if(iaAtiva) return;
-  iaAtiva = true;
-  iaLoop = setInterval(passarIA, AI_CONFIG.intervalo);
+if (!window.move || !window.simulateMove) {
+  console.error("IA não encontrou as funções do jogo.");
 }
 
-function desligarIA(){
-  iaAtiva = false;
-  clearInterval(iaLoop);
-}
+/* Flag global */
+window.IA_ENABLED = true;
 
-/* ---------- LOOP PRINCIPAL ---------- */
-function passarIA(){
-  if(gameOver) return desligarIA();
+/* Configuração */
+const IA_DELAY = 120; // ms entre jogadas
+const DIRECTIONS = ["up", "down", "left", "right"];
+const CANTO_PREFERIDO = [3, 0]; // canto inferior esquerdo
 
-  const direcoes = ["up","down","left","right"];
-  let melhorDirecao = null;
-  let melhorScore = -Infinity;
+/* Loop principal */
+const iaInterval = setInterval(() => {
+  if (!window.IA_ENABLED || window.gameOver) return;
 
-  for(const dir of direcoes){
+  const best = escolherMelhorJogada();
+  if (best) move(best);
+}, IA_DELAY);
+
+/* ================== DECISÃO ================== */
+function escolherMelhorJogada(){
+  let bestDir = null;
+  let bestScore = -Infinity;
+
+  for (const dir of DIRECTIONS) {
     const sim = simulateMove(dir, board);
-    if(boardsIguais(sim, board)) continue;
+    if (JSON.stringify(sim) === JSON.stringify(board)) continue;
 
     const score = avaliarTabuleiro(sim);
-    if(score > melhorScore){
-      melhorScore = score;
-      melhorDirecao = dir;
+    if (score > bestScore) {
+      bestScore = score;
+      bestDir = dir;
     }
   }
-
-  if(melhorDirecao){
-    move(melhorDirecao);
-  }else{
-    desligarIA();
-  }
+  return bestDir;
 }
 
-/* ---------- AVALIAÇÃO ---------- */
+/* ================== HEURÍSTICAS ================== */
 function avaliarTabuleiro(b){
-  const vazios = contarVazios(b);
-  const monotonia = calcularMonotonia(b);
-  const maior = maiorTile(b);
-  const canto = maiorNoCanto(b);
-  const travado = estaTravado(b);
-
   return (
-    vazios * AI_CONFIG.pesos.espacos +
-    monotonia * AI_CONFIG.pesos.monotonia +
-    canto * AI_CONFIG.pesos.canto +
-    Math.log2(maior) * AI_CONFIG.pesos.maxTile -
-    travado * AI_CONFIG.pesos.penalidadeTravado
+    espacosVazios(b) * 100 +
+    maiorNoCanto(b) * 1000 +
+    monotonicidade(b) * 10 -
+    penalidadeCaos(b) * 5
   );
 }
 
-/* ---------- HEURÍSTICAS ---------- */
-function contarVazios(b){
-  return b.flat().filter(v=>v===0).length;
-}
-
-function maiorTile(b){
-  return Math.max(...b.flat());
+function espacosVazios(b){
+  return b.flat().filter(v => v === 0).length;
 }
 
 function maiorNoCanto(b){
-  const max = maiorTile(b);
-  const cantos = [
-    b[0][0], b[0][3],
-    b[3][0], b[3][3]
-  ];
-  return cantos.includes(max) ? 1 : 0;
+  const max = Math.max(...b.flat());
+  return b[CANTO_PREFERIDO[0]][CANTO_PREFERIDO[1]] === max ? 1 : 0;
 }
 
-function calcularMonotonia(b){
+function monotonicidade(b){
   let score = 0;
-  for(let i=0;i<4;i++){
-    for(let j=0;j<3;j++){
-      score += Math.sign(b[i][j] - b[i][j+1]);
-      score += Math.sign(b[j][i] - b[j+1][i]);
+
+  for (let i = 0; i < 4; i++) {
+    for (let j = 0; j < 3; j++) {
+      if (b[i][j] >= b[i][j + 1]) score++;
+      if (b[j][i] >= b[j + 1][i]) score++;
     }
   }
-  return Math.abs(score);
+  return score;
 }
 
-function estaTravado(b){
-  let vazios = contarVazios(b);
-  if(vazios > 2) return 0;
-
-  for(let i=0;i<4;i++){
-    for(let j=0;j<4;j++){
-      if(j<3 && b[i][j]===b[i][j+1]) return 0;
-      if(i<3 && b[i][j]===b[i+1][j]) return 0;
+function penalidadeCaos(b){
+  let caos = 0;
+  for (let i = 0; i < 4; i++) {
+    for (let j = 0; j < 4; j++) {
+      if (!b[i][j]) continue;
+      if (j < 3 && Math.abs(b[i][j] - b[i][j + 1]) > b[i][j]) caos++;
+      if (i < 3 && Math.abs(b[i][j] - b[i + 1][j]) > b[i][j]) caos++;
     }
   }
-  return 1;
+  return caos;
 }
-
-/* ---------- UTIL ---------- */
-function boardsIguais(a,b){
-  return JSON.stringify(a) === JSON.stringify(b);
-    }
