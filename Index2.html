@@ -110,30 +110,30 @@ button.ia-on{
 
 <script>
 /* ================== CONTROLE IA ================== */
+let iaScript = null;
+
 function toggleIA(){
-  const ia = localStorage.getItem("iaMode")==="on" ? "off" : "on";
-  localStorage.setItem("iaMode", ia);
-
-  if(ia==="on"){
-    window.location.href = "ia_2048.js"; // arquivo da IA
-  }else{
-    updateIABtn();
-  }
-}
-
-function updateIABtn(){
   const btn = document.getElementById("iaBtn");
-  const ia = localStorage.getItem("iaMode");
-  if(ia==="on"){
-    btn.textContent = "IA: ON";
-    btn.classList.add("ia-on");
-  }else{
+
+  if(iaScript){
+    // DESLIGA IA
+    iaScript.remove();
+    iaScript = null;
+    window.IA_ENABLED = false;
     btn.textContent = "IA: OFF";
     btn.classList.remove("ia-on");
+  }else{
+    // LIGA IA
+    iaScript = document.createElement("script");
+    iaScript.src = "ia_2048.js";
+    iaScript.defer = true;
+    document.body.appendChild(iaScript);
+
+    window.IA_ENABLED = true;
+    btn.textContent = "IA: ON";
+    btn.classList.add("ia-on");
   }
 }
-
-updateIABtn();
 
 /* ================== JOGO BASE ================== */
 const size = 4;
