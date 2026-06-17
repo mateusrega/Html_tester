@@ -86,12 +86,10 @@ for(let i=0;i<200;i++){
     particulas.push({
         x:Math.random()*W|0,
         y:Math.random()*50|0,
-        energia:0
+        energia:0, ou seja que dá certo a equação logar
     tipo:"materia"
     });
-if(p.tipo === "composto"){
 
-    compostos++;
 
 }
 }
@@ -167,26 +165,27 @@ function absorverEnergia(){
         if(energiaLocal > 0.1){
 
             const absorcao =
-                Math.min(
-                    0.5,
-                    energiaLocal
-                );
+                Math.min(0.5, energiaLocal);
 
-            energiaGrid[p.y][p.x] -=
-                absorcao;
+            energiaGrid[p.y][p.x] -= absorcao;
 
             p.energia += absorcao;
-const limite =
+        }
 
-    p.tipo === "composto"
+        p.energia *= 0.9995;
 
-    ? 200
+        const limite =
+            p.tipo === "composto"
+            ? 200
+            : 100;
 
-    : 100;
+        if(p.energia > limite){
 
-if(p.energia > limite){
+            p.energia = limite;
 
-    p.energia = limite;
+        }
+
+    }
 
 }
         // vazamento lento
@@ -438,12 +437,14 @@ function desenhar(){
     }
 
     // Matéria
-
+let compostos = 0;
     for(const p of particulas){
 
         energiaArmazenada +=
             p.energia;
-
+if(p.tipo === "composto"){
+    compostos++;
+}
         if(p.tipo === "composto"){
 
     ctx.fillStyle = "#00ff44";
@@ -470,8 +471,6 @@ else{
 
 }
 
-        }
-
         ctx.fillRect(
             p.x*SCALE,
             p.y*SCALE,
@@ -480,7 +479,6 @@ else{
         );
 
     }
-
     hud.innerHTML = `
 Tempo: ${tempo.toFixed(1)}<br>
 Energia Ambiente: ${energiaAmbiente.toFixed(0)}<br>
@@ -501,14 +499,14 @@ function loop(){
     tempo += 0.1;
   
     gerarEnergia();
-  
-  formarCompostos();
-  
+
+moverEnergia();
+
+absorverEnergia();
+
+formarCompostos();
+
 degradarCompostos();
-
-    moverEnergia();
-
-    absorverEnergia();
 
     gerarMateria();
 
