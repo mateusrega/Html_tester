@@ -1,1 +1,528 @@
-pag3
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Universo Artificial V0.2B+</title>
+
+<style>
+body{
+    margin:0;
+    background:#000;
+    overflow:hidden;
+}
+
+canvas{
+    display:block;
+    margin:auto;
+    image-rendering:pixelated;
+}
+
+#hud{
+    position:absolute;
+    top:10px;
+    left:10px;
+    color:white;
+    font-family:monospace;
+    background:rgba(0,0,0,.6);
+    padding:8px;
+    border-radius:6px;
+}
+</style>
+</head>
+<body>
+
+<canvas id="canvas"></canvas>
+<div id="hud"></div>
+
+<script>
+
+// =====================
+// CONFIGURAÇÃO
+// =====================
+
+const SCALE = 3;
+
+// Mundo quadrado
+const W = 200;
+const H = 200;
+
+const canvas = document.getElementById("canvas");
+const ctx = canvas.getContext("2d");
+
+canvas.width = W * SCALE;
+canvas.height = H * SCALE;
+
+const hud = document.getElementById("hud");
+
+let tempo = 0;
+
+// =====================
+// CAMPO DE ENERGIA
+// =====================
+
+const energiaGrid = [];
+
+for(let y=0;y<H;y++){
+
+    energiaGrid[y] = [];
+
+    for(let x=0;x<W;x++){
+
+        energiaGrid[y][x] = 0;
+
+    }
+
+}
+
+// =====================
+// PARTÍCULAS
+// =====================
+let compostos = 0;
+const particulas = [];
+
+for(let i=0;i<200;i++){
+
+    particulas.push({
+        x:Math.random()*W|0,
+        y:Math.random()*50|0,
+        energia:0
+    tipo:"materia"
+    });
+if(p.tipo === "composto"){
+
+    compostos++;
+
+}
+}
+
+// =====================
+// ENERGIA
+// =====================
+
+function gerarEnergia(){
+
+    for(let i=0;i<25;i++){
+
+        const x = Math.random()*W|0;
+
+        energiaGrid[0][x] += 30;
+
+    }
+
+}
+
+function moverEnergia(){
+
+    const copia = energiaGrid.map(
+        linha => [...linha]
+    );
+
+    for(let y=0;y<H-1;y++){
+
+        for(let x=1;x<W-1;x++){
+
+            const energia = copia[y][x];
+
+            if(energia < 0.1) continue;
+
+            // mais movimento
+            const mover =
+                energia * 0.75;
+
+            // perda muito pequena
+            const dissipar =
+                energia * 0.001;
+
+            energiaGrid[y][x] -=
+                mover + dissipar;
+
+            // principalmente para baixo
+            energiaGrid[y+1][x] +=
+                mover * 0.85;
+
+            energiaGrid[y][x-1] +=
+                mover * 0.075;
+
+            energiaGrid[y][x+1] +=
+                mover * 0.075;
+
+        }
+
+    }
+
+}
+
+// =====================
+// ABSORÇÃO
+// =====================
+
+function absorverEnergia(){
+
+    for(const p of particulas){
+
+        const energiaLocal =
+            energiaGrid[p.y][p.x];
+
+        if(energiaLocal > 0.1){
+
+            const absorcao =
+                Math.min(
+                    0.5,
+                    energiaLocal
+                );
+
+            energiaGrid[p.y][p.x] -=
+                absorcao;
+
+            p.energia += absorcao;
+const limite =
+
+    p.tipo === "composto"
+
+    ? 200
+
+    : 100;
+
+if(p.energia > limite){
+
+    p.energia = limite;
+
+}
+        // vazamento lento
+
+        p.energia *= 0.9995;
+
+        if(p.energia > 100){
+
+            p.energia = 100;
+
+        }
+
+    }
+
+}
+
+// =====================
+// OCUPAÇÃO
+// =====================
+
+function criarMapaOcupacao(){
+
+    const mapa = [];
+
+    for(let y=0;y<H;y++){
+
+        mapa[y] = [];
+
+        for(let x=0;x<W;x++){
+
+            mapa[y][x] = false;
+
+        }
+
+    }
+
+    for(const p of particulas){
+
+        if(
+            p.x >= 0 &&
+            p.x < W &&
+            p.y >= 0 &&
+            p.y < H
+        ){
+
+            mapa[p.y][p.x] = true;
+
+        }
+
+    }
+
+    return mapa;
+
+}
+
+// =====================
+// GRAVIDADE
+// =====================
+
+function atualizarParticulas(){
+
+    const mapa =
+        criarMapaOcupacao();
+
+    for(const p of particulas){
+
+        // cair
+
+        if(
+            p.y < H-1 &&
+            !mapa[p.y+1][p.x]
+        ){
+
+            mapa[p.y][p.x] = false;
+
+            p.y++;
+
+            mapa[p.y][p.x] = true;
+
+            continue;
+
+        }
+
+        // diagonal esquerda
+
+        if(
+            p.x > 0 &&
+            p.y < H-1 &&
+            !mapa[p.y+1][p.x-1]
+        ){
+
+            mapa[p.y][p.x] = false;
+
+            p.x--;
+            p.y++;
+
+            mapa[p.y][p.x] = true;
+
+            continue;
+
+        }
+
+        // diagonal direita
+
+        if(
+            p.x < W-1 &&
+            p.y < H-1 &&
+            !mapa[p.y+1][p.x+1]
+        ){
+
+            mapa[p.y][p.x] = false;
+
+            p.x++;
+            p.y++;
+
+            mapa[p.y][p.x] = true;
+
+        }
+
+    }
+
+}
+
+// =====================
+// MATÉRIA NOVA
+// =====================
+
+function gerarMateria(){
+
+    if(Math.random() < 0.40){
+
+particulas.push({
+    x:Math.random()*W|0,
+    y:0,
+    energia:0,
+    tipo:"materia"
+});
+
+    }
+
+}
+  function degradarCompostos(){
+
+    for(const p of particulas){
+
+        if(
+            p.tipo === "composto" &&
+            p.energia < 10
+        ){
+
+            p.tipo = "materia";
+
+        }
+
+    }
+
+  }
+  function formarCompostos(){
+
+    for(let i=0;i<particulas.length;i++){
+
+        const a = particulas[i];
+
+        if(a.tipo !== "materia") continue;
+        if(a.energia < 30) continue;
+
+        for(let j=i+1;j<particulas.length;j++){
+
+            const b = particulas[j];
+
+            if(b.tipo !== "materia") continue;
+            if(b.energia < 30) continue;
+
+            const dx = Math.abs(a.x - b.x);
+            const dy = Math.abs(a.y - b.y);
+
+            if(dx <= 1 && dy <= 1){
+
+                a.tipo = "composto";
+
+                a.energia = Math.min(
+                    200,
+                    a.energia + b.energia
+                );
+
+                particulas.splice(j,1);
+
+                break;
+
+            }
+
+        }
+
+    }
+
+  }
+
+// =====================
+// DESENHO
+// =====================
+
+function desenhar(){
+
+    ctx.clearRect(
+        0,
+        0,
+        canvas.width,
+        canvas.height
+    );
+
+    let energiaAmbiente = 0;
+    let energiaArmazenada = 0;
+    let energizadas = 0;
+    // Energia
+
+    for(let y=0;y<H;y++){
+
+        for(let x=0;x<W;x++){
+
+            const energia =
+                energiaGrid[y][x];
+
+            energiaAmbiente += energia;
+
+            if(energia > 0.05){
+
+                const brilho =
+                    Math.min(
+                        energia * 6,
+                        255
+                    );
+
+                ctx.fillStyle =
+                    `rgb(${brilho},
+                          ${brilho*0.8},
+                          0)`;
+
+                ctx.fillRect(
+                    x*SCALE,
+                    y*SCALE,
+                    SCALE,
+                    SCALE
+                );
+
+            }
+
+        }
+
+    }
+
+    // Matéria
+
+    for(const p of particulas){
+
+        energiaArmazenada +=
+            p.energia;
+
+        if(p.tipo === "composto"){
+
+    ctx.fillStyle = "#00ff44";
+
+}
+else if(p.energia < 5){
+
+    ctx.fillStyle = "#3399ff";
+
+}
+else if(p.energia < 20){
+
+    ctx.fillStyle = "#9933ff";
+
+}
+else if(p.energia < 50){
+
+    ctx.fillStyle = "#ff55aa";
+
+}
+else{
+
+    ctx.fillStyle = "#ffffff";
+
+}
+
+        }
+
+        ctx.fillRect(
+            p.x*SCALE,
+            p.y*SCALE,
+            SCALE,
+            SCALE
+        );
+
+    }
+
+    hud.innerHTML = `
+Tempo: ${tempo.toFixed(1)}<br>
+Energia Ambiente: ${energiaAmbiente.toFixed(0)}<br>
+Energia Armazenada: ${energiaArmazenada.toFixed(0)}<br>
+Partículas: ${particulas.length}<br>
+Compostos: ${compostos}<br>
+Energizadas: ${energizadas}
+`;
+
+}
+
+// =====================
+// LOOP
+// =====================
+
+function loop(){
+
+    tempo += 0.1;
+  
+    gerarEnergia();
+  
+  formarCompostos();
+  
+degradarCompostos();
+
+    moverEnergia();
+
+    absorverEnergia();
+
+    gerarMateria();
+
+    atualizarParticulas();
+
+    desenhar();
+
+    requestAnimationFrame(loop);
+
+}
+
+loop();
+
+</script>
+
+</body>
+</html>
