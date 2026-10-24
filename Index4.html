@@ -1,1 +1,329 @@
-pag4
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1c241c">
+<title>Caça ao Tesouro — Mapa Simples</title>
+<style>
+:root{color-scheme:dark;--bg:#141a15;--panel:#202a21;--line:#445545;--gold:#f2ca68;--mint:#9dd8b0;--text:#f4f0df;--muted:#b9c2b4;--danger:#ff9c84}
+*{box-sizing:border-box}
+body{margin:0;background:radial-gradient(ellipse at top,#26362a 0,#141a15 65%);color:var(--text);font:16px/1.45 system-ui,-apple-system,Segoe UI,sans-serif;min-height:100vh}
+main{max-width:640px;margin:auto;padding:16px 14px 32px}
+h1{font-size:clamp(1.5rem,5vw,2rem);margin:0 0 4px;color:var(--gold);text-align:center}
+.sub{color:var(--muted);text-align:center;margin:0 0 14px;font-size:.92rem}
+.panel{background:linear-gradient(145deg,#243026,#1d261f);border:1px solid var(--line);border-radius:16px;padding:14px;margin:10px 0}
+h2{font-size:1rem;margin:0 0 10px;color:var(--gold)}
+.row{display:flex;gap:8px;flex-wrap:wrap}
+.row>*{flex:1;min-width:120px}
+button,input{font:inherit;border-radius:10px}
+button{border:1px solid #64715f;background:#334534;color:var(--text);padding:11px 12px;cursor:pointer;font-weight:650}
+button.primary{background:var(--gold);color:#292316;border-color:var(--gold)}
+button:disabled{opacity:.45;cursor:not-allowed}
+button:active{transform:scale(.99)}
+input{width:100%;padding:10px;background:#121813;border:1px solid var(--line);color:var(--text);margin-top:4px}
+label{display:block;color:var(--muted);font-size:.86rem;margin:6px 0}
+.note{font-size:.85rem;color:var(--muted)}
+.status{border-radius:10px;padding:9px 11px;background:#151d17;border:1px solid var(--line);color:var(--muted);font-size:.9rem;margin-top:8px}
+.status.good{border-color:#507b5b;color:#c4f0cf}
+.status.warn{border-color:#8d7542;color:#ffe4a2}
+.status.bad{border-color:#89584b;color:#ffc0ad}
+.mapwrap{display:flex;justify-content:center}
+canvas.map{width:min(100%,360px);aspect-ratio:1;border-radius:14px;background:#172019;border:1px solid #53624f}
+.stats{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.stat{background:#141b16;border:1px solid var(--line);padding:10px;border-radius:11px}
+.stat .label{font-size:.78rem;color:var(--muted)}
+.stat .value{font-size:1.25rem;font-weight:750;margin-top:2px;overflow-wrap:anywhere}
+#found{font-size:1.05rem;text-align:center;color:var(--gold);padding:14px;border:1px solid var(--gold);border-radius:12px;background:#3a3020;margin-top:10px}
+.hidden{display:none!important}
+.footer{text-align:center;color:#879487;font-size:.78rem;padding:10px}
+@media(min-width:560px){.stats{grid-template-columns:repeat(4,minmax(0,1fr))}}
+</style>
+</head>
+<body>
+<main>
+  <h1>✦ Caça ao Tesouro ✦</h1>
+  <p class="sub">Mapa relativo simples — você e o tesouro.</p>
+
+  <section class="panel">
+    <h2>1 · Permissões</h2>
+    <div class="row">
+      <button id="permBtn" class="primary">🔐 Permitir localização e sensores</button>
+    </div>
+    <div id="permStatus" class="status">Permissões ainda não solicitadas.</div>
+    <p class="note">A localização é essencial. Orientação/sensores são opcionais e dependem do navegador/aparelho.</p>
+  </section>
+
+  <section class="panel">
+    <h2>2 · Defina o tesouro</h2>
+    <div class="row">
+      <button id="markBtn" class="primary">📍 Marcar tesouro aqui</button>
+      <button id="locBtn">◎ Atualizar posição</button>
+    </div>
+    <div class="row">
+      <label>Latitude<input id="tLat" inputmode="decimal" placeholder="-25.000000"></label>
+      <label>Longitude<input id="tLon" inputmode="decimal" placeholder="-49.000000"></label>
+    </div>
+    <div class="row">
+      <button id="saveBtn">Salvar coordenadas</button>
+      <button id="clearBtn">Apagar destino</button>
+    </div>
+    <div id="targetStatus" class="status">Nenhum tesouro definido.</div>
+  </section>
+
+  <section class="panel">
+    <h2>3 · Mapa</h2>
+    <div class="mapwrap"><canvas id="map" class="map" width="600" height="600"></canvas></div>
+    <div class="stats" style="margin-top:10px">
+      <div class="stat"><div class="label">Distância</div><div id="distance" class="value">—</div></div>
+      <div class="stat"><div class="label">Direção</div><div id="bearing" class="value">—</div></div>
+      <div class="stat"><div class="label">Precisão GPS</div><div id="accuracy" class="value">—</div></div>
+      <div class="stat"><div class="label">Orientação</div><div id="heading" class="value">—</div></div>
+    </div>
+    <label for="radius">Raio de descoberta (m): <strong id="radiusValue">5</strong>
+      <input id="radius" type="range" min="2" max="20" value="5">
+    </label>
+    <div id="found" class="hidden">✨ Você chegou à área do tesouro!</div>
+    <div id="gpsStatus" class="status">GPS ainda não iniciado.</div>
+  </section>
+
+  <section class="panel">
+    <h2>Iniciar / pausar</h2>
+    <div class="row">
+      <button id="startBtn" class="primary">▶ Iniciar caça</button>
+      <button id="stopBtn" disabled>■ Pausar</button>
+    </div>
+    <p class="note">A caça usa o GPS continuamente. Em ambientes internos o erro pode ser grande; o raio de descoberta é uma regra do jogo, não uma garantia de precisão.</p>
+  </section>
+
+  <div class="footer">Protótipo · arquivo único · sem servidor</div>
+</main>
+
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  let target = null, position = null, watchId = null, headingDeg = null;
+  const canvas = $('map'), ctx = canvas.getContext('2d');
+  const cardinal = ['N','NE','L','SE','S','SO','O','NO'];
+  const fmt = n => Number(n).toFixed(6);
+  const rad = d => d * Math.PI / 180;
+
+  function distanceBearing(a,b){
+    const R=6371000, p1=rad(a.lat), p2=rad(b.lat), dp=rad(b.lat-a.lat), dl=rad(b.lon-a.lon);
+    const h=Math.sin(dp/2)**2+Math.cos(p1)*Math.cos(p2)*Math.sin(dl/2)**2;
+    const d=2*R*Math.asin(Math.min(1,Math.sqrt(h)));
+    const y=Math.sin(dl)*Math.cos(p2), x=Math.cos(p1)*Math.sin(p2)-Math.sin(p1)*Math.cos(p2)*Math.cos(dl);
+    return {distance:d,bearing:(Math.atan2(y,x)*180/Math.PI+360)%360};
+  }
+  function direction(d){return cardinal[Math.round(d/45)%8]+' · '+Math.round(d)+'°';}
+  function setStatus(id,msg,type=''){const el=$(id);el.textContent=msg;el.className='status '+type;}
+
+  function draw(){
+    const w=canvas.width,h=canvas.height,cx=w/2,cy=h/2;
+    ctx.clearRect(0,0,w,h);
+    ctx.fillStyle='#172019';ctx.fillRect(0,0,w,h);
+    // grade estilo mapa
+    ctx.strokeStyle='#2b3a2c';ctx.lineWidth=1;
+    for(let i=0;i<=w;i+=50){ctx.beginPath();ctx.moveTo(i,0);ctx.lineTo(i,h);ctx.stroke();}
+    for(let j=0;j<=h;j+=50){ctx.beginPath();ctx.moveTo(0,j);ctx.lineTo(w,j);ctx.stroke();}
+    // bússola
+    ctx.strokeStyle='#53624f';ctx.lineWidth=2;
+    ctx.beginPath();ctx.moveTo(cx,24);ctx.lineTo(cx,h-24);ctx.moveTo(24,cy);ctx.lineTo(w-24,cy);ctx.stroke();
+    ctx.fillStyle='#b9c2b4';ctx.font='bold 22px system-ui';ctx.textAlign='center';ctx.fillText('N',cx,22);
+
+    if(!target || !position){
+      ctx.fillStyle='#9ba995';ctx.font='20px system-ui';ctx.textAlign='center';ctx.textBaseline='middle';
+      ctx.fillText(!target?'Defina o tesouro':'Aguardando GPS',cx,cy);
+      // jogador
+      ctx.fillStyle='#9dd8b0';ctx.beginPath();ctx.arc(cx,cy,12,0,Math.PI*2);ctx.fill();
+      return;
+    }
+    const v = distanceBearing(position,target);
+    const maxView = Math.max(20, Math.min(500, v.distance*1.25));
+    const scale = 230/maxView, br = rad(v.bearing);
+    const x = cx + Math.sin(br)*v.distance*scale;
+    const y = cy - Math.cos(br)*v.distance*scale;
+
+    // linha pontilhada até o tesouro
+    ctx.strokeStyle='#f2ca68';ctx.setLineDash([8,8]);ctx.lineWidth=3;
+    ctx.beginPath();ctx.moveTo(cx,cy);ctx.lineTo(x,y);ctx.stroke();ctx.setLineDash([]);
+
+    // posição do tesouro (dentro da moldura)
+    const dx=x-cx, dy=y-cy, len=Math.hypot(dx,dy), lim=230;
+    const tx = len>lim ? cx+dx/len*lim : x;
+    const ty = len>lim ? cy+dy/len*lim : y;
+
+    ctx.fillStyle='#ff775f';ctx.font='bold 44px system-ui';ctx.textAlign='center';ctx.textBaseline='middle';
+    ctx.fillText('✕',tx,ty);
+
+    // jogador
+    ctx.fillStyle='#9dd8b0';ctx.beginPath();ctx.arc(cx,cy,12,0,Math.PI*2);ctx.fill();
+    ctx.strokeStyle='#172019';ctx.lineWidth=4;
+    ctx.beginPath();ctx.moveTo(cx-6,cy);ctx.lineTo(cx+6,cy);ctx.moveTo(cx,cy-6);ctx.lineTo(cx,cy+6);ctx.stroke();
+
+    // rótulo
+    ctx.fillStyle='#f4f0df';ctx.font='15px system-ui';ctx.fillText('você',cx,cy+32);
+    if(len>lim){ctx.fillStyle='#ffcf73';ctx.font='14px system-ui';ctx.fillText('X fora da escala',cx,cy+54);}
+  }
+
+  function updateReadings(){
+    if(!position){draw();return;}
+    $('accuracy').textContent = position.accuracy!=null ? '±'+Math.round(position.accuracy)+' m' : '—';
+    $('heading').textContent = headingDeg==null ? '—' : Math.round(headingDeg)+'°';
+    if(!target){$('distance').textContent='—';$('bearing').textContent='—';draw();return;}
+
+    const v = distanceBearing(position,target);
+    $('distance').textContent = v.distance<1000 ? Math.round(v.distance)+' m' : (v.distance/1000).toFixed(2)+' km';
+    $('bearing').textContent = direction(v.bearing);
+
+    const radius = Number($('radius').value);
+    const goodAcc = position.accuracy==null || position.accuracy <= Math.max(20, radius*3);
+    if(v.distance <= radius && goodAcc){
+      $('found').classList.remove('hidden');
+      if(navigator.vibrate) navigator.vibrate([150,80,250]);
+      setStatus('gpsStatus','Dentro do raio de descoberta (GPS pode ter erro).','good');
+    } else {
+      $('found').classList.add('hidden');
+    }
+    draw();
+  }
+
+  function onPosition(pos){
+    position = {lat:pos.coords.latitude, lon:pos.coords.longitude, accuracy:pos.coords.accuracy};
+    $('gpsStatus').textContent = 'Posição: '+fmt(position.lat)+', '+fmt(position.lon)+' · '+new Date().toLocaleTimeString('pt-BR');
+    $('gpsStatus').className = 'status good';
+    updateReadings();
+  }
+  function onError(err){
+    const m = {1:'Permissão de localização negada.',2:'Posição indisponível (tente perto de janela/ar livre).',3:'Tempo esgotado.'};
+    setStatus('gpsStatus', m[err.code]||err.message,'bad');
+  }
+  function locateOnce(){
+    if(!navigator.geolocation){setStatus('gpsStatus','Geolocalização não suportada.','bad');return;}
+    setStatus('gpsStatus','Obtendo localização…','warn');
+    navigator.geolocation.getCurrentPosition(onPosition,onError,{enableHighAccuracy:true,timeout:20000,maximumAge:0});
+  }
+
+  function start(){
+    if(!target){setStatus('targetStatus','Defina o tesouro antes de iniciar.','warn');return;}
+    if(!navigator.geolocation){setStatus('gpsStatus','Geolocalização não suportada.','bad');return;}
+    if(watchId!==null) return;
+    watchId = navigator.geolocation.watchPosition(onPosition,onError,{enableHighAccuracy:true,maximumAge:1000,timeout:20000});
+    $('startBtn').disabled = true; $('stopBtn').disabled = false;
+    setStatus('gpsStatus','Caça iniciada. Aguardando posição…','warn');
+  }
+  function stop(){
+    if(watchId!==null) navigator.geolocation.clearWatch(watchId);
+    watchId=null;
+    $('startBtn').disabled=false; $('stopBtn').disabled=true;
+    setStatus('gpsStatus','Caça pausada.','warn');
+  }
+
+  async function requestSensorPermission(sensor){
+    if(typeof sensor==='undefined') return 'unsupported';
+    if(typeof sensor.requestPermission==='function') return await sensor.requestPermission();
+    return 'prompt-not-required';
+  }
+
+  async function requestAllPermissions(){
+    const results = [];
+
+    // Localização
+    if(!navigator.geolocation){
+      results.push('Localização: não suportada.');
+    } else {
+      try {
+        await new Promise((resolve,reject) => {
+          navigator.geolocation.getCurrentPosition(
+            pos => { onPosition(pos); results.push('Localização: permitida.'); resolve(); },
+            err => { results.push('Localização: '+(err.code===1?'negada':err.code===2?'indisponível':'tempo esgotado')+'.'); reject(err); },
+            {enableHighAccuracy:true,timeout:15000,maximumAge:0}
+          );
+        });
+      } catch(_){}
+    }
+
+    // Orientação (bússola)
+    try {
+      const r = await requestSensorPermission(window.DeviceOrientationEvent);
+      if(r==='granted' || r==='prompt-not-required'){
+        window.addEventListener('deviceorientationabsolute', onOrientation, true);
+        window.addEventListener('deviceorientation', onOrientation, true);
+        results.push('Orientação: '+(r==='granted'?'permitida.':'depende do navegador.'));
+      } else if(r==='unsupported'){
+        results.push('Orientação: não suportada.');
+      } else {
+        results.push('Orientação: não concedida.');
+      }
+    } catch(_){ results.push('Orientação: falha ao pedir permissão.'); }
+
+    // Movimento (acelerômetro/giroscópio)
+    try {
+      const r = await requestSensorPermission(window.DeviceMotionEvent);
+      if(r==='granted' || r==='prompt-not-required'){
+        results.push('Sensores de movimento: '+(r==='granted'?'permitidos.':'depende do navegador.'));
+      } else if(r==='unsupported'){
+        results.push('Sensores de movimento: não suportados.');
+      } else {
+        results.push('Sensores de movimento: não concedidos.');
+      }
+    } catch(_){ results.push('Sensores de movimento: falha ao pedir permissão.'); }
+
+    setStatus('permStatus', results.join(' '), results.some(x=>x.includes('negada')||x.includes('não conced')||x.includes('falha'))?'warn':'good');
+  }
+
+  function onOrientation(e){
+    let h=null;
+    if(typeof e.webkitCompassHeading==='number') h=e.webkitCompassHeading;
+    else if(e.absolute && typeof e.alpha==='number') h=(360-e.alpha)%360;
+    if(h!=null){ headingDeg=(h+360)%360; $('heading').textContent=Math.round(headingDeg)+'°'; }
+  }
+
+  // Eventos
+  $('permBtn').addEventListener('click', requestAllPermissions);
+  $('locBtn').addEventListener('click', locateOnce);
+  $('markBtn').addEventListener('click', () => {
+    if(!position){ locateOnce(); setStatus('targetStatus','Obtenha a posição primeiro e toque de novo.','warn'); return; }
+    target = {lat:position.lat, lon:position.lon};
+    $('tLat').value = fmt(target.lat); $('tLon').value = fmt(target.lon);
+    setStatus('targetStatus','Tesouro marcado: '+fmt(target.lat)+', '+fmt(target.lon),'good');
+    $('found').classList.add('hidden'); updateReadings();
+  });
+  $('saveBtn').addEventListener('click', () => {
+    const lat = Number($('tLat').value.trim().replace(',','.'));
+    const lon = Number($('tLon').value.trim().replace(',','.'));
+    if($('tLat').value.trim()===''||$('tLon').value.trim()===''||!Number.isFinite(lat)||!Number.isFinite(lon)||Math.abs(lat)>90||Math.abs(lon)>180){
+      setStatus('targetStatus','Coordenadas inválidas.','bad'); return;
+    }
+    target={lat,lon};
+    setStatus('targetStatus','Destino salvo: '+fmt(lat)+', '+fmt(lon),'good');
+    $('found').classList.add('hidden'); updateReadings();
+  });
+  $('clearBtn').addEventListener('click', () => {
+    target=null; $('tLat').value=''; $('tLon').value='';
+    $('found').classList.add('hidden');
+    setStatus('targetStatus','Nenhum tesouro definido.');
+    updateReadings();
+  });
+  $('startBtn').addEventListener('click', start);
+  $('stopBtn').addEventListener('click', stop);
+  $('radius').addEventListener('input', () => {
+    $('radiusValue').textContent = $('radius').value;
+    updateReadings();
+  });
+
+  draw();
+
+  // Ao abrir, já solicita as permissões (precisa de interação do usuário em muitos navegadores;
+  // por isso também há o botão). Tentamos automaticamente após um clique em qualquer lugar.
+  let autoTried = false;
+  document.addEventListener('click', () => {
+    if(autoTried) return;
+    autoTried = true;
+    // não chama requestAllPermissions automaticamente para não sobrepor o clique do botão;
+    // mas se o usuário clicar no botão, ele roda normalmente.
+  }, {once:true});
+})();
+</script>
+</body>
+  </html>
