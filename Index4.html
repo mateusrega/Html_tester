@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#1c241c">
-<title>Caça ao Tesouro — Mapa Simples</title>
+<title>Caça ao Tesouro — Filtro GPS + Velocidade</title>
 <style>
 :root{color-scheme:dark;--bg:#141a15;--panel:#202a21;--line:#445545;--gold:#f2ca68;--mint:#9dd8b0;--text:#f4f0df;--muted:#b9c2b4;--danger:#ff9c84}
 *{box-sizing:border-box}
@@ -33,7 +33,7 @@ canvas.map{width:min(100%,360px);aspect-ratio:1;border-radius:14px;background:#1
 .stats{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
 .stat{background:#141b16;border:1px solid var(--line);padding:10px;border-radius:11px}
 .stat .label{font-size:.78rem;color:var(--muted)}
-.stat .value{font-size:1.25rem;font-weight:750;margin-top:2px;overflow-wrap:anywhere}
+.stat .value{font-size:1.2rem;font-weight:750;margin-top:2px;overflow-wrap:anywhere}
 #found{font-size:1.05rem;text-align:center;color:var(--gold);padding:14px;border:1px solid var(--gold);border-radius:12px;background:#3a3020;margin-top:10px}
 .hidden{display:none!important}
 .footer{text-align:center;color:#879487;font-size:.78rem;padding:10px}
@@ -43,7 +43,7 @@ canvas.map{width:min(100%,360px);aspect-ratio:1;border-radius:14px;background:#1
 <body>
 <main>
   <h1>✦ Caça ao Tesouro ✦</h1>
-  <p class="sub">Mapa relativo simples — você e o tesouro.</p>
+  <p class="sub">GPS filtrado + velocidade + acelerômetro.</p>
 
   <section class="panel">
     <h2>1 · Permissões</h2>
@@ -51,7 +51,6 @@ canvas.map{width:min(100%,360px);aspect-ratio:1;border-radius:14px;background:#1
       <button id="permBtn" class="primary">🔐 Permitir localização e sensores</button>
     </div>
     <div id="permStatus" class="status">Permissões ainda não solicitadas.</div>
-    <p class="note">A localização é essencial. Orientação/sensores são opcionais e dependem do navegador/aparelho.</p>
   </section>
 
   <section class="panel">
@@ -78,7 +77,11 @@ canvas.map{width:min(100%,360px);aspect-ratio:1;border-radius:14px;background:#1
       <div class="stat"><div class="label">Distância</div><div id="distance" class="value">—</div></div>
       <div class="stat"><div class="label">Direção</div><div id="bearing" class="value">—</div></div>
       <div class="stat"><div class="label">Precisão GPS</div><div id="accuracy" class="value">—</div></div>
+      <div class="stat"><div class="label">Velocidade</div><div id="speed" class="value">—</div></div>
       <div class="stat"><div class="label">Orientação</div><div id="heading" class="value">—</div></div>
+      <div class="stat"><div class="label">Movimento</div><div id="motion" class="value">—</div></div>
+      <div class="stat"><div class="label">Saltos descartados</div><div id="jumps" class="value">0</div></div>
+      <div class="stat"><div class="label">Leituras válidas</div><div id="validReads" class="value">0</div></div>
     </div>
     <label for="radius">Raio de descoberta (m): <strong id="radiusValue">5</strong>
       <input id="radius" type="range" min="2" max="20" value="5">
@@ -93,21 +96,47 @@ canvas.map{width:min(100%,360px);aspect-ratio:1;border-radius:14px;background:#1
       <button id="startBtn" class="primary">▶ Iniciar caça</button>
       <button id="stopBtn" disabled>■ Pausar</button>
     </div>
-    <p class="note">A caça usa o GPS continuamente. Em ambientes internos o erro pode ser grande; o raio de descoberta é uma regra do jogo, não uma garantia de precisão.</p>
   </section>
 
-  <div class="footer">Protótipo · arquivo único · sem servidor</div>
+  <div class="footer">Protótipo · arquivo único · filtro de saltos + velocidade</div>
 </main>
 
 <script>
 (() => {
   const $ = id => document.getElementById(id);
-  let target = null, position = null, watchId = null, headingDeg = null;
   const canvas = $('map'), ctx = canvas.getContext('2d');
   const cardinal = ['N','NE','L','SE','S','SO','O','NO'];
   const fmt = n => Number(n).toFixed(6);
   const rad = d => d * Math.PI / 180;
 
+  // ---------- estado ----------
+  let target = null;
+  let rawPosition = null;        // última posição crua do GPS
+  let filteredPosition = null;   // última posição aceita após filtro
+  let watchId = null;
+  let isHunting = false;
+  let headingDeg = null;
+
+  // filtro de saltos
+  let lastAccepted = null;       // {lat,lon,accuracy,time}
+  let lastAcceptedTime = 0;
+  let jumpsDiscarded = 0;
+  let validReads = 0;
+
+  // velocidade (média móvel)
+  const speedWindow = [];        // {v, t}
+  const SPEED_WINDOW_MS = 6000;
+
+  // acelerômetro → estado de movimento
+  const accelBuffer = [];
+  let isMoving = null;           // null = desconhecido, true/false
+  let lastAccelTime = 0;
+
+  // confirmação de vitória (N leituras consecutivas dentro do raio)
+  let inRadiusStreak = 0;
+  const STREAK_REQUIRED = 3;
+
+  // ---------- geometria ----------
   function distanceBearing(a,b){
     const R=6371000, p1=rad(a.lat), p2=rad(b.lat), dp=rad(b.lat-a.lat), dl=rad(b.lon-a.lon);
     const h=Math.sin(dp/2)**2+Math.cos(p1)*Math.cos(p2)*Math.sin(dl/2)**2;
@@ -118,37 +147,158 @@ canvas.map{width:min(100%,360px);aspect-ratio:1;border-radius:14px;background:#1
   function direction(d){return cardinal[Math.round(d/45)%8]+' · '+Math.round(d)+'°';}
   function setStatus(id,msg,type=''){const el=$(id);el.textContent=msg;el.className='status '+type;}
 
+  // ---------- movimento via acelerômetro ----------
+  function onMotion(e){
+    const a = e.accelerationIncludingGravity || e.acceleration;
+    if(!a || a.x==null) return;
+    const now = performance.now();
+    // ignora leituras muito próximas (limita taxa)
+    if(now - lastAccelTime < 50) return;
+    lastAccelTime = now;
+
+    const mag = Math.hypot(a.x, a.y, a.z);
+    accelBuffer.push(mag);
+    if(accelBuffer.length > 25) accelBuffer.shift();
+
+    if(accelBuffer.length >= 10){
+      const mean = accelBuffer.reduce((s,v)=>s+v,0)/accelBuffer.length;
+      const variance = accelBuffer.reduce((s,v)=>s+(v-mean)**2,0)/accelBuffer.length;
+      // limiar empírico: parado costuma ter variância baixa
+      const moving = variance > 0.6;
+      isMoving = moving;
+      $('motion').textContent = moving ? 'em movimento' : 'parado';
+    }
+  }
+
+  // ---------- filtro de saltos GPS ----------
+  // Rejeita posições com deslocamento implausível para o tempo decorrido
+  // e com precisão pior que um limiar absoluto.
+  function acceptRawPosition(pos){
+    const now = Date.now();
+    const acc = pos.coords.accuracy;
+    const lat = pos.coords.latitude, lon = pos.coords.longitude;
+
+    // precisão mínima aceitável (GPS muito ruim → descarta)
+    const MAX_ACCURACY = 50; // metros; ajuste conforme necessário
+    if(acc != null && acc > MAX_ACCURACY){
+      jumpsDiscarded++;
+      $('jumps').textContent = jumpsDiscarded;
+      return false;
+    }
+
+    // primeiro ponto válido
+    if(!lastAccepted){
+      lastAccepted = {lat, lon, accuracy:acc, time:now};
+      lastAcceptedTime = now;
+      return true;
+    }
+
+    // se estiver parado (acelerômetro), não aceita grandes deslocamentos
+    const dt = Math.max(0.001, (now - lastAcceptedTime)/1000);
+    const d = distanceBearing(lastAccepted, {lat,lon}).distance;
+    const v = d / dt; // m/s
+
+    // limite de velocidade plausível: 6 m/s (~21 km/h)
+    // e, se parado, limite bem menor (0.8 m/s)
+    const maxV = isMoving === false ? 0.8 : 6;
+    const maxJump = Math.max(5, maxV * dt); // tolera pelo menos 5 m de ruído
+
+    if(d > maxJump){
+      jumpsDiscarded++;
+      $('jumps').textContent = jumpsDiscarded;
+      return false;
+    }
+
+    // aceita e atualiza
+    lastAccepted = {lat, lon, accuracy:acc, time:now};
+    lastAcceptedTime = now;
+    return true;
+  }
+
+  // ---------- posição crua → filtrada ----------
+  function onPosition(pos){
+    rawPosition = {
+      lat: pos.coords.latitude,
+      lon: pos.coords.longitude,
+      accuracy: pos.coords.accuracy,
+      time: Date.now()
+    };
+
+    if(!acceptRawPosition(pos)){
+      // não atualiza exibição, mas mostra status
+      $('gpsStatus').textContent = 'Leitura descartada (salto/precisão). Aguardando leitura estável…';
+      $('gpsStatus').className = 'status warn';
+      return;
+    }
+
+    validReads++;
+    $('validReads').textContent = validReads;
+
+    // calcula velocidade pela diferença entre posições filtradas consecutivas
+    if(filteredPosition){
+      const dt = (rawPosition.time - filteredPosition.time)/1000;
+      const d = distanceBearing(filteredPosition, rawPosition).distance;
+      if(dt > 0.1){
+        const v = d/dt; // m/s
+        speedWindow.push({v, t:rawPosition.time});
+      }
+    }
+    // descarta amostras antigas
+    const cutoff = rawPosition.time - SPEED_WINDOW_MS;
+    while(speedWindow.length && speedWindow[0].t < cutoff) speedWindow.shift();
+
+    filteredPosition = {...rawPosition};
+
+    const avgV = speedWindow.length
+      ? speedWindow.reduce((s,x)=>s+x.v,0)/speedWindow.length
+      : 0;
+    $('speed').textContent = (avgV*3.6).toFixed(1)+' km/h';
+
+    $('gpsStatus').textContent = 'Posição filtrada: '+fmt(filteredPosition.lat)+', '+fmt(filteredPosition.lon)
+      +' · '+new Date(filteredPosition.time).toLocaleTimeString('pt-BR');
+    $('gpsStatus').className = 'status good';
+
+    updateReadings();
+  }
+
+  function onError(err){
+    const m = {1:'Permissão de localização negada.',2:'Posição indisponível (tente perto de janela/ar livre).',3:'Tempo esgotado.'};
+    setStatus('gpsStatus', m[err.code]||err.message,'bad');
+  }
+
+  function locateOnce(){
+    if(!navigator.geolocation){setStatus('gpsStatus','Geolocalização não suportada.','bad');return;}
+    setStatus('gpsStatus','Obtendo localização…','warn');
+    navigator.geolocation.getCurrentPosition(onPosition,onError,{enableHighAccuracy:true,timeout:8000,maximumAge:0});
+  }
+
+  // ---------- desenho ----------
   function draw(){
     const w=canvas.width,h=canvas.height,cx=w/2,cy=h/2;
     ctx.clearRect(0,0,w,h);
     ctx.fillStyle='#172019';ctx.fillRect(0,0,w,h);
-    // grade estilo mapa
     ctx.strokeStyle='#2b3a2c';ctx.lineWidth=1;
     for(let i=0;i<=w;i+=50){ctx.beginPath();ctx.moveTo(i,0);ctx.lineTo(i,h);ctx.stroke();}
     for(let j=0;j<=h;j+=50){ctx.beginPath();ctx.moveTo(0,j);ctx.lineTo(w,j);ctx.stroke();}
-    // bússola
     ctx.strokeStyle='#53624f';ctx.lineWidth=2;
     ctx.beginPath();ctx.moveTo(cx,24);ctx.lineTo(cx,h-24);ctx.moveTo(24,cy);ctx.lineTo(w-24,cy);ctx.stroke();
     ctx.fillStyle='#b9c2b4';ctx.font='bold 22px system-ui';ctx.textAlign='center';ctx.fillText('N',cx,22);
 
-    if(!target || !position){
+    if(!target || !filteredPosition){
       ctx.fillStyle='#9ba995';ctx.font='20px system-ui';ctx.textAlign='center';ctx.textBaseline='middle';
       ctx.fillText(!target?'Defina o tesouro':'Aguardando GPS',cx,cy);
-      // jogador
       ctx.fillStyle='#9dd8b0';ctx.beginPath();ctx.arc(cx,cy,12,0,Math.PI*2);ctx.fill();
       return;
     }
-    const v = distanceBearing(position,target);
+    const v = distanceBearing(filteredPosition,target);
     const maxView = Math.max(20, Math.min(500, v.distance*1.25));
     const scale = 230/maxView, br = rad(v.bearing);
     const x = cx + Math.sin(br)*v.distance*scale;
     const y = cy - Math.cos(br)*v.distance*scale;
 
-    // linha pontilhada até o tesouro
     ctx.strokeStyle='#f2ca68';ctx.setLineDash([8,8]);ctx.lineWidth=3;
     ctx.beginPath();ctx.moveTo(cx,cy);ctx.lineTo(x,y);ctx.stroke();ctx.setLineDash([]);
 
-    // posição do tesouro (dentro da moldura)
     const dx=x-cx, dy=y-cy, len=Math.hypot(dx,dy), lim=230;
     const tx = len>lim ? cx+dx/len*lim : x;
     const ty = len>lim ? cy+dy/len*lim : y;
@@ -156,69 +306,80 @@ canvas.map{width:min(100%,360px);aspect-ratio:1;border-radius:14px;background:#1
     ctx.fillStyle='#ff775f';ctx.font='bold 44px system-ui';ctx.textAlign='center';ctx.textBaseline='middle';
     ctx.fillText('✕',tx,ty);
 
-    // jogador
     ctx.fillStyle='#9dd8b0';ctx.beginPath();ctx.arc(cx,cy,12,0,Math.PI*2);ctx.fill();
     ctx.strokeStyle='#172019';ctx.lineWidth=4;
     ctx.beginPath();ctx.moveTo(cx-6,cy);ctx.lineTo(cx+6,cy);ctx.moveTo(cx,cy-6);ctx.lineTo(cx,cy+6);ctx.stroke();
 
-    // rótulo
     ctx.fillStyle='#f4f0df';ctx.font='15px system-ui';ctx.fillText('você',cx,cy+32);
     if(len>lim){ctx.fillStyle='#ffcf73';ctx.font='14px system-ui';ctx.fillText('X fora da escala',cx,cy+54);}
   }
 
+  // ---------- leituras + vitória ----------
   function updateReadings(){
-    if(!position){draw();return;}
-    $('accuracy').textContent = position.accuracy!=null ? '±'+Math.round(position.accuracy)+' m' : '—';
+    if(!filteredPosition){draw();return;}
+    $('accuracy').textContent = filteredPosition.accuracy!=null ? '±'+Math.round(filteredPosition.accuracy)+' m' : '—';
     $('heading').textContent = headingDeg==null ? '—' : Math.round(headingDeg)+'°';
+
     if(!target){$('distance').textContent='—';$('bearing').textContent='—';draw();return;}
 
-    const v = distanceBearing(position,target);
+    const v = distanceBearing(filteredPosition,target);
     $('distance').textContent = v.distance<1000 ? Math.round(v.distance)+' m' : (v.distance/1000).toFixed(2)+' km';
     $('bearing').textContent = direction(v.bearing);
 
+    // vitória SÓ se caça estiver ativa
+    if(!isHunting){
+      $('found').classList.add('hidden');
+      inRadiusStreak = 0;
+      draw();
+      return;
+    }
+
     const radius = Number($('radius').value);
-    const goodAcc = position.accuracy==null || position.accuracy <= Math.max(20, radius*3);
+    const goodAcc = filteredPosition.accuracy==null || filteredPosition.accuracy <= Math.max(15, radius*3);
+
     if(v.distance <= radius && goodAcc){
+      inRadiusStreak++;
+    } else {
+      inRadiusStreak = 0;
+    }
+
+    if(inRadiusStreak >= STREAK_REQUIRED){
       $('found').classList.remove('hidden');
       if(navigator.vibrate) navigator.vibrate([150,80,250]);
-      setStatus('gpsStatus','Dentro do raio de descoberta (GPS pode ter erro).','good');
     } else {
       $('found').classList.add('hidden');
     }
     draw();
   }
 
-  function onPosition(pos){
-    position = {lat:pos.coords.latitude, lon:pos.coords.longitude, accuracy:pos.coords.accuracy};
-    $('gpsStatus').textContent = 'Posição: '+fmt(position.lat)+', '+fmt(position.lon)+' · '+new Date().toLocaleTimeString('pt-BR');
-    $('gpsStatus').className = 'status good';
-    updateReadings();
-  }
-  function onError(err){
-    const m = {1:'Permissão de localização negada.',2:'Posição indisponível (tente perto de janela/ar livre).',3:'Tempo esgotado.'};
-    setStatus('gpsStatus', m[err.code]||err.message,'bad');
-  }
-  function locateOnce(){
-    if(!navigator.geolocation){setStatus('gpsStatus','Geolocalização não suportada.','bad');return;}
-    setStatus('gpsStatus','Obtendo localização…','warn');
-    navigator.geolocation.getCurrentPosition(onPosition,onError,{enableHighAccuracy:true,timeout:20000,maximumAge:0});
-  }
-
+  // ---------- iniciar/pausar ----------
   function start(){
     if(!target){setStatus('targetStatus','Defina o tesouro antes de iniciar.','warn');return;}
     if(!navigator.geolocation){setStatus('gpsStatus','Geolocalização não suportada.','bad');return;}
     if(watchId!==null) return;
-    watchId = navigator.geolocation.watchPosition(onPosition,onError,{enableHighAccuracy:true,maximumAge:1000,timeout:20000});
-    $('startBtn').disabled = true; $('stopBtn').disabled = false;
+
+    isHunting = true;
+    inRadiusStreak = 0;
+
+    watchId = navigator.geolocation.watchPosition(onPosition,onError,{
+      enableHighAccuracy:true,
+      maximumAge:0,
+      timeout:5000
+    });
+    $('startBtn').disabled=true; $('stopBtn').disabled=false;
     setStatus('gpsStatus','Caça iniciada. Aguardando posição…','warn');
   }
   function stop(){
     if(watchId!==null) navigator.geolocation.clearWatch(watchId);
     watchId=null;
+    isHunting=false;
+    inRadiusStreak=0;
+    $('found').classList.add('hidden');
     $('startBtn').disabled=false; $('stopBtn').disabled=true;
     setStatus('gpsStatus','Caça pausada.','warn');
   }
 
+  // ---------- permissões ----------
   async function requestSensorPermission(sensor){
     if(typeof sensor==='undefined') return 'unsupported';
     if(typeof sensor.requestPermission==='function') return await sensor.requestPermission();
@@ -228,7 +389,6 @@ canvas.map{width:min(100%,360px);aspect-ratio:1;border-radius:14px;background:#1
   async function requestAllPermissions(){
     const results = [];
 
-    // Localização
     if(!navigator.geolocation){
       results.push('Localização: não suportada.');
     } else {
@@ -237,13 +397,12 @@ canvas.map{width:min(100%,360px);aspect-ratio:1;border-radius:14px;background:#1
           navigator.geolocation.getCurrentPosition(
             pos => { onPosition(pos); results.push('Localização: permitida.'); resolve(); },
             err => { results.push('Localização: '+(err.code===1?'negada':err.code===2?'indisponível':'tempo esgotado')+'.'); reject(err); },
-            {enableHighAccuracy:true,timeout:15000,maximumAge:0}
+            {enableHighAccuracy:true,timeout:10000,maximumAge:0}
           );
         });
       } catch(_){}
     }
 
-    // Orientação (bússola)
     try {
       const r = await requestSensorPermission(window.DeviceOrientationEvent);
       if(r==='granted' || r==='prompt-not-required'){
@@ -255,19 +414,19 @@ canvas.map{width:min(100%,360px);aspect-ratio:1;border-radius:14px;background:#1
       } else {
         results.push('Orientação: não concedida.');
       }
-    } catch(_){ results.push('Orientação: falha ao pedir permissão.'); }
+    } catch(_){ results.push('Orientação: falha.'); }
 
-    // Movimento (acelerômetro/giroscópio)
     try {
       const r = await requestSensorPermission(window.DeviceMotionEvent);
       if(r==='granted' || r==='prompt-not-required'){
-        results.push('Sensores de movimento: '+(r==='granted'?'permitidos.':'depende do navegador.'));
+        window.addEventListener('devicemotion', onMotion, true);
+        results.push('Movimento: '+(r==='granted'?'permitido.':'depende do navegador.'));
       } else if(r==='unsupported'){
-        results.push('Sensores de movimento: não suportados.');
+        results.push('Movimento: não suportado.');
       } else {
-        results.push('Sensores de movimento: não concedidos.');
+        results.push('Movimento: não concedido.');
       }
-    } catch(_){ results.push('Sensores de movimento: falha ao pedir permissão.'); }
+    } catch(_){ results.push('Movimento: falha.'); }
 
     setStatus('permStatus', results.join(' '), results.some(x=>x.includes('negada')||x.includes('não conced')||x.includes('falha'))?'warn':'good');
   }
@@ -279,16 +438,20 @@ canvas.map{width:min(100%,360px);aspect-ratio:1;border-radius:14px;background:#1
     if(h!=null){ headingDeg=(h+360)%360; $('heading').textContent=Math.round(headingDeg)+'°'; }
   }
 
-  // Eventos
+  // ---------- eventos ----------
   $('permBtn').addEventListener('click', requestAllPermissions);
   $('locBtn').addEventListener('click', locateOnce);
+
   $('markBtn').addEventListener('click', () => {
-    if(!position){ locateOnce(); setStatus('targetStatus','Obtenha a posição primeiro e toque de novo.','warn'); return; }
-    target = {lat:position.lat, lon:position.lon};
+    if(!filteredPosition){ locateOnce(); setStatus('targetStatus','Obtenha a posição primeiro e toque de novo.','warn'); return; }
+    target = {lat:filteredPosition.lat, lon:filteredPosition.lon};
     $('tLat').value = fmt(target.lat); $('tLon').value = fmt(target.lon);
     setStatus('targetStatus','Tesouro marcado: '+fmt(target.lat)+', '+fmt(target.lon),'good');
-    $('found').classList.add('hidden'); updateReadings();
+    $('found').classList.add('hidden');
+    inRadiusStreak = 0;
+    updateReadings();
   });
+
   $('saveBtn').addEventListener('click', () => {
     const lat = Number($('tLat').value.trim().replace(',','.'));
     const lon = Number($('tLon').value.trim().replace(',','.'));
@@ -297,33 +460,31 @@ canvas.map{width:min(100%,360px);aspect-ratio:1;border-radius:14px;background:#1
     }
     target={lat,lon};
     setStatus('targetStatus','Destino salvo: '+fmt(lat)+', '+fmt(lon),'good');
-    $('found').classList.add('hidden'); updateReadings();
+    $('found').classList.add('hidden');
+    inRadiusStreak = 0;
+    updateReadings();
   });
+
   $('clearBtn').addEventListener('click', () => {
     target=null; $('tLat').value=''; $('tLon').value='';
     $('found').classList.add('hidden');
+    inRadiusStreak = 0;
     setStatus('targetStatus','Nenhum tesouro definido.');
     updateReadings();
   });
+
   $('startBtn').addEventListener('click', start);
   $('stopBtn').addEventListener('click', stop);
+
   $('radius').addEventListener('input', () => {
     $('radiusValue').textContent = $('radius').value;
-    updateReadings();
+    // NÃO aciona vitória aqui: só reavalia se estiver caçando
+    if(isHunting) updateReadings();
+    else draw();
   });
 
   draw();
-
-  // Ao abrir, já solicita as permissões (precisa de interação do usuário em muitos navegadores;
-  // por isso também há o botão). Tentamos automaticamente após um clique em qualquer lugar.
-  let autoTried = false;
-  document.addEventListener('click', () => {
-    if(autoTried) return;
-    autoTried = true;
-    // não chama requestAllPermissions automaticamente para não sobrepor o clique do botão;
-    // mas se o usuário clicar no botão, ele roda normalmente.
-  }, {once:true});
 })();
 </script>
 </body>
-  </html>
+</html>
